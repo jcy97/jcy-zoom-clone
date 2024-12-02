@@ -1,6 +1,7 @@
 import http from "http";
 import { Server } from "socket.io";
 import express from "express";
+import { count } from "console";
 
 const app = express();
 app.set("view engine", "pug");
@@ -9,24 +10,48 @@ app.use("/public", express.static(__dirname + "/public"));
 
 app.get("/", (req, res) => res.render("home"));
 app.get("/*", (req, res) => res.redirect("/"));
-console.log("Hello");
 
 const handleListen = () => console.log(`Listening on http://localhost:3000`);
 const httpServer = http.createServer(app);
 const wsServer = new Server(httpServer);
 
+const publicRooms = () => {
+  const {
+    sockets: {
+      adapter: { sids, rooms },
+    },
+  } = wsServer;
+  const publicRooms = [];
+  rooms.forEach((_, key) => {
+    if (sids.get(key) === undefined) {
+      publicRooms.push(key);
+    }
+  });
+  return publicRooms;
+};
+
+const countRoom = (roomName) => {
+  console.log(wsServer.sockets.adapter.rooms.get(roomName)?.size);
+  return wsServer.sockets.adapter.rooms.get(roomName)?.size;
+};
 wsServer.on("connection", (socket) => {
   socket["nickname"] = "none";
   socket.on("enter_room", (roomName, done) => {
     socket.join(roomName.payload); // 수정된 부분
     done();
-    socket.to(roomName.payload).emit("welcome", socket.nickname);
+    socket
+      .to(roomName.payload)
+      .emit("welcome", socket.nickname, countRoom(roomName.payload));
+    wsServer.sockets.emit("room_change", publicRooms());
   });
 
   socket.on("disconnecting", () => {
     socket.rooms.forEach((room) =>
-      socket.to(room).emit("bye", socket.nickname)
+      socket.to(room).emit("bye", socket.nickname, countRoom(room) - 1)
     );
+  });
+  socket.on("disconnect", () => {
+    wsServer.sockets.emit("room_change", publicRooms());
   });
 
   socket.on("new_message", (msg, room, done) => {
