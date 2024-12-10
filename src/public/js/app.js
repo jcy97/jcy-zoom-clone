@@ -1,78 +1,103 @@
 const socket = io();
-const welcome = document.getElementById("welcome");
-const form = welcome.querySelector("form");
-const room = document.getElementById("room");
+const myFace = document.getElementById("myFace");
+let myStream;
+const muteBtn = document.getElementById("mute");
+const cameraBtn = document.getElementById("camera");
+const camerasSelect = document.getElementById("cameras");
 
+const call = document.getElementById("call");
+call.hidden = true;
+
+let muted = false;
+let cameraOff = false;
 let roomName;
-room.hidden = true;
+async function getCameras() {
+  try {
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    const cameras = devices.filter((device) => device.kind === "videoinput");
+    cameras.forEach((camera) => {
+      const option = document.createElement("option");
+      option.value = camera.deviceId;
+      option.innerText = camera.label;
+      camerasSelect.appendChild(option);
+    });
+  } catch (e) {
+    console.log(e);
+  }
+}
 
-const handleMessageSubmit = (event) => {
-  event.preventDefault();
-  const input = room.querySelector("#msg input");
-  const value = input.value;
-  socket.emit("new_message", value, roomName, () => {
-    addMessage(`You: ${value}`); // 수정된 부분
-  });
-  input.value = "";
-};
+async function getMedia(deviceId) {
+  const initialConstrains = { audio: true, video: { facingMode: "user" } };
+  const cameraConstrains = {
+    audio: true,
+    video: { deviceId: { exact: deviceId } },
+  };
+  try {
+    myStream = await navigator.mediaDevices.getUserMedia(
+      deviceId ? cameraConstrains : initialConstrains
+    );
+    myFace.srcObject = myStream;
+    if (!deviceId) {
+      await getCameras();
+    }
+  } catch (e) {
+    console.log(e);
+  }
+}
 
-const handleNickNameSubmit = (event) => {
-  event.preventDefault();
-  const input = room.querySelector("#name input");
-  const value = input.value;
-  socket.emit("nickname", value);
-};
+function handleMuteClick() {
+  myStream
+    .getAudioTracks()
+    .forEach((track) => (track.enabled = !track.enabled));
+  if (!muted) {
+    muteBtn.innerText = "Unmute";
+    muted = true;
+  } else {
+    muteBtn.innerText = "Mute";
+    muted = false;
+  }
+}
+function handleCameraClick() {
+  myStream
+    .getVideoTracks()
+    .forEach((track) => (track.enabled = !track.enabled));
+  if (!cameraOff) {
+    cameraBtn.innerText = "Turn Camera Off";
+    cameraOff = true;
+  } else {
+    cameraBtn.innerText = "Turn Camera On";
+    cameraOff = false;
+  }
+}
+async function handleCameraChange() {
+  await getMedia(camerasSelect.value);
+}
+muteBtn.addEventListener("click", handleMuteClick);
+cameraBtn.addEventListener("click", handleCameraClick);
+camerasSelect.addEventListener("input", handleCameraChange);
 
-const showRoom = () => {
+//Welcome Form (choose a room)
+const welcome = document.getElementById("welcome");
+const welcomeForm = welcome.querySelector("form");
+
+function startMedia() {
   welcome.hidden = true;
-  room.hidden = false;
-  const h3 = room.querySelector("h3");
-  h3.innerText = `Room ${roomName}`; // 수정된 부분
-  const msgForm = room.querySelector("#msg");
-  const nameForm = room.querySelector("#name");
-  msgForm.addEventListener("submit", handleMessageSubmit);
-  nameForm.addEventListener("submit", handleNickNameSubmit);
-};
+  call.hidden = false;
+  getMedia();
+}
 
-const addMessage = (message) => {
-  const ul = room.querySelector("ul");
-  const li = document.createElement("li");
-  li.innerText = message;
-  ul.appendChild(li);
-};
-
-const handleRoomSubmit = (event) => {
+function handleWelcomeSubmit(event) {
   event.preventDefault();
-  const input = form.querySelector("input");
-  roomName = input.value; // 방 이름을 먼저 설정
-  socket.emit("enter_room", { payload: roomName }, showRoom);
+  const input = welcomeForm.querySelector("input");
+  socket.emit("join_room", input.value, startMedia);
+  roomName = input.value;
   input.value = "";
-};
+}
 
-form.addEventListener("submit", handleRoomSubmit);
+welcomeForm.addEventListener("submit", handleWelcomeSubmit);
 
-socket.on("welcome", (user, newCount) => {
-  const h3 = room.querySelector("h3");
-  h3.innerText = `Room ${roomName} (${newCount})`; // 수정된 부분
-  addMessage(`${user} joined`);
-});
+//socket code
 
-socket.on("bye", (left, newCount) => {
-  const h3 = room.querySelector("h3");
-  h3.innerText = `Room ${roomName} (${newCount})`; // 수정된 부분
-
-  addMessage(`${left} left!`);
-});
-
-socket.on("new_message", addMessage);
-
-socket.on("room_change", (rooms) => {
-  const roomList = welcome.querySelector("ul");
-  roomList.innerHTML = "";
-
-  rooms.forEach((room) => {
-    const li = document.createElement("li");
-    li.innerText = room;
-    roomList.append(li);
-  });
+socket.on("welcome", () => {
+  console.log("sombody join");
 });
